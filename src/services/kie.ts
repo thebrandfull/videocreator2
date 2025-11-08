@@ -27,42 +27,49 @@ export async function requestVideo(script: ScriptResponse): Promise<VideoArtifac
     .map((scene) => `${scene.prompt} (duration ${scene.duration_s}s)`)
     .join(' ');
 
-  const generateRes = await fetch('https://api.kie.ai/api/v1/runway/generate', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${env.kieKey}`
-    },
-    body: JSON.stringify({
-      prompt,
-      duration: 10,
-      quality: '720p',
-      aspectRatio: '16:9',
-      waterMark: ''
-    })
-  });
+  try {
+    const generateRes = await fetch('https://api.kie.ai/api/v1/runway/generate', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${env.kieKey}`
+      },
+      body: JSON.stringify({
+        prompt,
+        duration: 10,
+        quality: '720p',
+        aspectRatio: '16:9',
+        waterMark: ''
+      })
+    });
 
-  if (!generateRes.ok) {
-    const text = await generateRes.text();
-    throw new Error(`Kie generate failed: ${generateRes.status} ${text}`);
+    if (!generateRes.ok) {
+      const text = await generateRes.text();
+      throw new Error(`Kie generate failed: ${generateRes.status} ${text}`);
+    }
+
+    const generateData: unknown = await generateRes.json();
+    const taskId =
+      (generateData as { data?: { taskId?: string }; taskId?: string })?.data?.taskId ??
+      (generateData as { taskId?: string }).taskId;
+    if (!taskId) {
+      throw new Error('Kie response missing taskId');
+    }
+
+    const videoUrl = await pollForVideo(taskId);
+
+    return {
+      provider: 'kie',
+      taskId,
+      videoUrl,
+      prompt
+    };
+  } catch (error) {
+    logger.warn('Kie.ai unavailable, serving mock video.', {
+      error: error instanceof Error ? error.message : String(error)
+    });
+    return mockVideo;
   }
-
-  const generateData: unknown = await generateRes.json();
-  const taskId =
-    (generateData as { data?: { taskId?: string }; taskId?: string })?.data?.taskId ??
-    (generateData as { taskId?: string }).taskId;
-  if (!taskId) {
-    throw new Error('Kie response missing taskId');
-  }
-
-  const videoUrl = await pollForVideo(taskId);
-
-  return {
-    provider: 'kie',
-    taskId,
-    videoUrl,
-    prompt
-  };
 }
 
 async function pollForVideo(taskId: string): Promise<string> {

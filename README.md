@@ -38,7 +38,7 @@ YOUTUBE_CLIENT_SECRET=
 YOUTUBE_REFRESH_TOKEN=
 ```
 
-If a key is missing, the corresponding stage will emit a mock artifact but still advance so the workflow feels fluid.
+If a key is missing **or** an upstream API rejects the call (401/403/5xx), the stage silently falls back to its mock artifact so the rest of the flow can keep moving.
 
 Front-end calls default to `http://localhost:4000`. Override by defining `web/.env` (or `.env.local`) with:
 

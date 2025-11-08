@@ -61,47 +61,54 @@ export async function requestScript(idea: UserIdea): Promise<ScriptResponse> {
     return mockScript;
   }
 
-  const payload = {
-    model: 'deepseek-chat',
-    response_format: { type: 'json_object' },
-    messages: [
-      {
-        role: 'system',
-        content:
-          'You are a video scriptwriter. Return strictly valid JSON with sections, scenes, and metadata as previously defined.'
+  try {
+    const payload = {
+      model: 'deepseek-chat',
+      response_format: { type: 'json_object' },
+      messages: [
+        {
+          role: 'system',
+          content:
+            'You are a video scriptwriter. Return strictly valid JSON with sections, scenes, and metadata as previously defined.'
+        },
+        {
+          role: 'user',
+          content: `Topic: ${idea.topic}. Desired duration: ${idea.durationSeconds}s. Brand voice: ${idea.brandVoice}.`
+        }
+      ],
+      max_tokens: 1200
+    };
+
+    const response = await fetch('https://api.deepseek.com/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${env.deepseekKey}`
       },
-      {
-        role: 'user',
-        content: `Topic: ${idea.topic}. Desired duration: ${idea.durationSeconds}s. Brand voice: ${idea.brandVoice}.`
-      }
-    ],
-    max_tokens: 1200
-  };
+      body: JSON.stringify(payload)
+    });
 
-  const response = await fetch('https://api.deepseek.com/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${env.deepseekKey}`
-    },
-    body: JSON.stringify(payload)
-  });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`DeepSeek request failed: ${response.status} ${text}`);
+    }
 
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`DeepSeek request failed: ${response.status} ${text}`);
+    const data: unknown = await response.json();
+    const content =
+      (data as { choices?: Array<{ message?: { content?: string } }> })?.choices?.[0]?.message?.content;
+    if (!content) {
+      throw new Error('DeepSeek response missing content');
+    }
+    const parsed = ScriptSchema.safeParse(JSON.parse(content));
+    if (!parsed.success) {
+      throw new Error(`DeepSeek JSON failed validation: ${parsed.error.message}`);
+    }
+
+    return parsed.data;
+  } catch (error) {
+    logger.warn('DeepSeek unavailable, serving mock script.', {
+      error: error instanceof Error ? error.message : String(error)
+    });
+    return mockScript;
   }
-
-  const data: unknown = await response.json();
-  const content =
-    (data as { choices?: Array<{ message?: { content?: string } }> })?.choices?.[0]?.message?.content;
-  if (!content) {
-    throw new Error('DeepSeek response missing content');
-  }
-  const parsed = ScriptSchema.safeParse(JSON.parse(content));
-  if (!parsed.success) {
-    throw new Error(`DeepSeek JSON failed validation: ${parsed.error.message}`);
-  }
-
-  return parsed.data;
 }

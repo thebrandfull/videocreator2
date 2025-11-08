@@ -42,29 +42,36 @@ export async function buildVoiceTrack({ idea, script }: BuildVoiceTrackArgs): Pr
     }
   };
 
-  const res = await fetch('https://api.elevenlabs.io/v1/text-to-speech/eleven_multilingual_v2', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'xi-api-key': env.elevenLabsKey
-    },
-    body: JSON.stringify(payload)
-  });
+  try {
+    const res = await fetch('https://api.elevenlabs.io/v1/text-to-speech/eleven_multilingual_v2', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'xi-api-key': env.elevenLabsKey
+      },
+      body: JSON.stringify(payload)
+    });
 
-  if (!res.ok) {
-    const textBody = await res.text();
-    throw new Error(`ElevenLabs TTS failed: ${res.status} ${textBody}`);
+    if (!res.ok) {
+      const textBody = await res.text();
+      throw new Error(`ElevenLabs TTS failed: ${res.status} ${textBody}`);
+    }
+
+    const arrayBuffer = await res.arrayBuffer();
+    const voiceoverUrl = storeBlob(Buffer.from(arrayBuffer), 'voiceover.mp3');
+
+    return {
+      voiceoverUrl,
+      cleanedUrl: voiceoverUrl,
+      mixUrl: voiceoverUrl,
+      notes: ['TODO: run isolator + ffmpeg mux to produce final mix']
+    };
+  } catch (error) {
+    logger.warn('ElevenLabs unavailable, serving mock audio.', {
+      error: error instanceof Error ? error.message : String(error)
+    });
+    return mockAudio;
   }
-
-  const arrayBuffer = await res.arrayBuffer();
-  const voiceoverUrl = storeBlob(Buffer.from(arrayBuffer), 'voiceover.mp3');
-
-  return {
-    voiceoverUrl,
-    cleanedUrl: voiceoverUrl,
-    mixUrl: voiceoverUrl,
-    notes: ['TODO: run isolator + ffmpeg mux to produce final mix']
-  };
 }
 
 function storeBlob(buffer: Buffer, filename: string): string {
