@@ -1,61 +1,52 @@
 import express from 'express';
 import cors from 'cors';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import facesRouter from './routes/faces.js';
+import { faceStore } from './storage/faceStore.js';
 
-import { assertEnv } from './config/env';
-import { logger } from './lib/logger';
-import {
-  startJob,
-  getJobById,
-  listAllJobs,
-  triggerPublish,
-  type UserIdea
-} from './orchestrator/pipeline';
-
-assertEnv(false);
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
+const PORT = process.env.PORT || 3000;
+
+// Middleware
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-const PORT = Number(process.env.PORT) || 4000;
+// Serve uploaded files
+app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
 
-app.get('/api/health', (_req, res) => {
-  res.json({ ok: true });
+// Serve face-api.js models
+app.use('/models', express.static(path.join(process.cwd(), 'models')));
+
+// API routes
+app.use('/api/faces', facesRouter);
+
+// Health check
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-app.get('/api/jobs', (_req, res) => {
-  res.json({ jobs: listAllJobs() });
-});
+// Serve frontend in production
+if (process.env.NODE_ENV === 'production') {
+  app.use(express.static(path.join(process.cwd(), 'web', 'dist')));
 
-app.get('/api/jobs/:id', (req, res) => {
-  const job = getJobById(req.params.id);
-  if (!job) {
-    return res.status(404).json({ error: 'Job not found' });
-  }
-  return res.json(job);
-});
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(process.cwd(), 'web', 'dist', 'index.html'));
+  });
+}
 
-app.post('/api/jobs', (req, res) => {
-  const idea: UserIdea = {
-    topic: String(req.body.topic ?? 'New idea'),
-    durationSeconds: Number(req.body.durationSeconds ?? 60),
-    brandVoice: String(req.body.brandVoice ?? 'calm, confident, encouraging')
-  };
-  const autoPublish = Boolean(req.body.autoPublish ?? false);
-  const job = startJob(idea, { autoPublish });
-  res.status(201).json(job);
-});
+// Initialize storage and start server
+async function start() {
+  await faceStore.init();
 
-app.post('/api/jobs/:id/publish', async (req, res) => {
-  try {
-    const job = await triggerPublish(req.params.id);
-    res.json(job);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
-    res.status(400).json({ error: message });
-  }
-});
+  app.listen(PORT, () => {
+    console.log(`Face Recognition Server running on http://localhost:${PORT}`);
+    console.log(`API available at http://localhost:${PORT}/api`);
+  });
+}
 
-app.listen(PORT, () => {
-  logger.info(`Auto-Video Builder API running on http://localhost:${PORT}`);
-});
+start().catch(console.error);
